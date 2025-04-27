@@ -2,15 +2,21 @@ import os
 import asyncio
 import logging
 from aiohttp import web
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, filters
-)
+
+# Attempt to import telegram libraries, handle if not installed
+try:
+    from telegram import Update
+    from telegram.ext import (
+        ApplicationBuilder, CommandHandler, MessageHandler,
+        ContextTypes, filters
+    )
+except ModuleNotFoundError as e:
+    raise ImportError("The 'python-telegram-bot' library is required. Install it using 'pip install python-telegram-bot aiohttp'") from e
 
 # ===== CONFIGURATION =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "").split(",") if id.strip()]
+PORT = int(os.getenv("PORT", 8080))
 
 # ===== SETUP =====
 logging.basicConfig(
@@ -19,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ===== WEB SERVER (FOR HEALTH CHECKS) =====
+# ===== WEB SERVER =====
 async def healthcheck(request):
     return web.Response(text="✅ Bot is running!")
 
@@ -28,31 +34,37 @@ async def start_web_server():
     web_app.router.add_get("/", healthcheck)
     runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 8080)))
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logger.info("🌐 Web server started for health checks")
+    logger.info(f"🌐 Web server started on port {PORT}")
+    return runner
 
 # ===== BOT HANDLERS =====
 async def init_bot_data(context: ContextTypes.DEFAULT_TYPE):
-    context.bot_data.setdefault("rules", "Welcome! Be respectful.")
-    context.bot_data.setdefault("ban_words", ["spam", "scam"])
+    if not context.bot_data.get("initialized"):
+        context.bot_data["rules"] = "Welcome! Be respectful."
+        context.bot_data["ban_words"] = ["spam", "scam", "porn"]
+        context.bot_data["initialized"] = True
 
-async def is_admin(update: Update):
-    return update.effective_user.id in ADMIN_IDS
+async def is_admin(update: Update) -> bool:
+    return update.effective_user and update.effective_user.id in ADMIN_IDS
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Admin Bot Ready!\n"
+        "🤖 Admin Bot Ready!\n\n"
+        "Available commands:\n"
         "/setrules - Update group rules\n"
         "/addbanword - Add banned words\n"
-        "/listbanwords - Show banned words"
+        "/listbanwords - Show banned words\n"
+        "/rules - Show group rules\n"
+        "/help - Show this message"
     )
 
 async def set_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update):
         await update.message.reply_text("❌ Admin only command!")
         return
-        
+
     new_rules = " ".join(context.args)
     if new_rules:
         context.bot_data["rules"] = new_rules
@@ -64,71 +76,128 @@ async def add_ban_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update):
         await update.message.reply_text("❌ Admin only command!")
         return
-        
-    words = [w.lower() for w in context.args]
+
+    words = [w.lower() for w in context.args if w.strip()]
     if words:
         added = []
+        already_banned = []
+
         for word in words:
             if word not in context.bot_data["ban_words"]:
                 context.bot_data["ban_words"].append(word)
                 added.append(word)
+            else:
+                already_banned.append(word)
+
+        response = []
         if added:
-            await update.message.reply_text(f"✅ Added: {', '.join(added)}")
-        else:
-            await update.message.reply_text("⚠️ All words already banned")
+            response.append(f"✅ Added: {', '.join(added)}")
+        if already_banned:
+            response.append(f"⚠️ Already banned: {', '.join(already_banned)}")
+
+        await update.message.reply_text("\n".join(response))
     else:
         await update.message.reply_text("Usage: /addbanword <word1> <word2>...")
 
 async def list_ban_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     words = context.bot_data.get("ban_words", [])
-    await update.message.reply_text(
-        "🚫 Banned Words:\n" + "\n".join(words) if words else "No banned words set"
-    )
+    response = "🚫 Banned Words:\n" + "\n".join(f"- {word}" for word in words) if words else "No banned words set."
+    await update.message.reply_text(response)
+
+async def show_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(context.bot_data.get("rules", "No rules set."))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+
     text = update.message.text.lower()
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+
     for word in context.bot_data.get("ban_words", []):
         if word in text:
             try:
                 await update.message.delete()
                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"⚠️ {update.effective_user.full_name}'s message contained a banned word."
+                    chat_id=chat_id,
+                    text=f"⚠️ {user.full_name}'s message contained a banned word."
                 )
+                logger.info(f"Deleted message from {user.id} in chat {chat_id}")
+                break
             except Exception as e:
                 logger.error(f"Failed to delete message: {e}")
-            break
+                break
 
 async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(context.bot_data["rules"])
+    await update.message.reply_text(context.bot_data.get("rules", "Welcome!"))
 
 # ===== MAIN APPLICATION =====
-async def main():
+async def run_bot():
     if not BOT_TOKEN:
         logger.error("❌ Missing BOT_TOKEN in environment variables")
-        return
+        raise ValueError("BOT_TOKEN is required")
     if not ADMIN_IDS:
         logger.error("❌ Missing ADMIN_IDS in environment variables")
-        return
+        raise ValueError("ADMIN_IDS is required")
+
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Initialize bot shared data once
+    app.add_handler(MessageHandler(filters.ALL, init_bot_data), group=-1)
+
+    # Handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", start))
+    app.add_handler(CommandHandler("setrules", set_rules))
+    app.add_handler(CommandHandler("addbanword", add_ban_word))
+    app.add_handler(CommandHandler("listbanwords", list_ban_words))
+    app.add_handler(CommandHandler("rules", show_rules))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, handle_message))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
+
+    logger.info("🤖 Bot starting...")
+    await app.initialize()
+    await app.start()
+
+    # Set bot commands
+    await app.bot.set_my_commands([
+        ("start", "Start the bot"),
+        ("setrules", "Set group rules"),
+        ("addbanword", "Add banned word"),
+        ("listbanwords", "Show banned words"),
+        ("rules", "Show group rules"),
+        ("help", "Show help")
+    ])
+
+    return app
+
+async def main():
+    web_runner = None
+    bot_app = None
 
     try:
-        await start_web_server()
+        web_runner = await start_web_server()
+        bot_app = await run_bot()
 
-        app = ApplicationBuilder().token(BOT_TOKEN).build()
+        while True:
+            await asyncio.sleep(3600)
 
-        app.add_handler(MessageHandler(filters.ALL, init_bot_data), group=-1)
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("setrules", set_rules))
-        app.add_handler(CommandHandler("addbanword", add_ban_word))
-        app.add_handler(CommandHandler("listbanwords", list_ban_words))
-        app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, handle_message))
-        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
-
-        logger.info("🤖 Starting bot polling...")
-        await app.run_polling()
-
+    except asyncio.CancelledError:
+        pass
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
+    finally:
+        logger.info("👋 Shutting down...")
+        if bot_app:
+            await bot_app.stop()
+            await bot_app.shutdown()
+        if web_runner:
+            await web_runner.cleanup()
+        logger.info("👋 Shutdown complete")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("👋 Shutdown by user")
