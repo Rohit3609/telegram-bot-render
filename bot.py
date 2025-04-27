@@ -1,7 +1,13 @@
+import os  # <--- ADD this
 import asyncio
-from aiohttp import web  # NEW import
+import logging  # <--- ADD this if missing
+from aiohttp import web
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters  # ADD imports if not already
+# Also your other necessary imports...
 
-# Your other imports remain the same...
+# Fetch the environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_IDS = os.getenv("ADMIN_IDS")
 
 async def healthcheck(request):
     return web.Response(text="✅ Bot is running fine!")
