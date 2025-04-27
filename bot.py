@@ -3,7 +3,7 @@ import asyncio
 import logging
 from aiohttp import web
 
-# Attempt to import telegram libraries, handle if not installed
+# Attempt to import telegram libraries
 try:
     from telegram import Update
     from telegram.ext import (
@@ -11,14 +11,15 @@ try:
         ContextTypes, filters
     )
 except ModuleNotFoundError as e:
-    raise ImportError("The 'python-telegram-bot' library is required. Install it using 'pip install python-telegram-bot aiohttp'") from e
+    raise ImportError("Install required libraries: 'pip install python-telegram-bot aiohttp'") from e
 
-# ===== CONFIGURATION =====
+# ===== CONFIG =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "").split(",") if id.strip()]
 PORT = int(os.getenv("PORT", 8080))
+APP_URL = os.getenv("APP_URL")  # e.g., https://your-app-name.onrender.com
 
-# ===== SETUP =====
+# ===== LOGGING =====
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -52,7 +53,7 @@ async def is_admin(update: Update) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Admin Bot Ready!\n\n"
-        "Available commands:\n"
+        "Commands:\n"
         "/setrules - Update group rules\n"
         "/addbanword - Add banned words\n"
         "/listbanwords - Show banned words\n"
@@ -132,18 +133,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(context.bot_data.get("rules", "Welcome!"))
 
-# ===== MAIN APPLICATION =====
+# ===== BOT MAIN =====
 async def run_bot():
-    if not BOT_TOKEN:
-        logger.error("❌ Missing BOT_TOKEN in environment variables")
-        raise ValueError("BOT_TOKEN is required")
-    if not ADMIN_IDS:
-        logger.error("❌ Missing ADMIN_IDS in environment variables")
-        raise ValueError("ADMIN_IDS is required")
+    if not BOT_TOKEN or not ADMIN_IDS or not APP_URL:
+        raise ValueError("BOT_TOKEN, ADMIN_IDS, and APP_URL must be set in environment variables")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Initialize bot shared data once
+    # Shared data
     app.add_handler(MessageHandler(filters.ALL, init_bot_data), group=-1)
 
     # Handlers
@@ -156,11 +153,12 @@ async def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, handle_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 
+    # Start
     logger.info("🤖 Bot starting...")
     await app.initialize()
     await app.start()
 
-    # Set bot commands
+    # Bot commands
     await app.bot.set_my_commands([
         ("start", "Start the bot"),
         ("setrules", "Set group rules"),
@@ -169,6 +167,10 @@ async def run_bot():
         ("rules", "Show group rules"),
         ("help", "Show help")
     ])
+
+    # 🚀 Set webhook
+    webhook_url = f"{APP_URL}/"  # Important: slash at end
+    await app.bot.set_webhook(url=webhook_url)
 
     return app
 
@@ -194,7 +196,7 @@ async def main():
             await bot_app.shutdown()
         if web_runner:
             await web_runner.cleanup()
-        logger.info("👋 Shutdown complete")
+        logger.info("✅ Shutdown complete")
 
 if __name__ == "__main__":
     try:
