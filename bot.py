@@ -153,49 +153,26 @@ async def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, handle_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 
-    # Start
     logger.info("🤖 Bot starting...")
-    await app.initialize()
-    await app.start()
 
-    # Bot commands
-    await app.bot.set_my_commands([
-        ("start", "Start the bot"),
-        ("setrules", "Set group rules"),
-        ("addbanword", "Add banned word"),
-        ("listbanwords", "Show banned words"),
-        ("rules", "Show group rules"),
-        ("help", "Show help")
-    ])
-
-    # 🚀 Set webhook
-    webhook_url = f"{APP_URL}/"  # Important: slash at end
-    await app.bot.set_webhook(url=webhook_url)
-
-    return app
+    # 🚀 Correct way: run webhook
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{APP_URL}/"
+    )
 
 async def main():
     web_runner = None
-    bot_app = None
 
     try:
         web_runner = await start_web_server()
-        bot_app = await run_bot()
-
-        while True:
-            await asyncio.sleep(3600)
-
+        await run_bot()
     except asyncio.CancelledError:
         pass
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
     finally:
-        logger.info("👋 Shutting down...")
-        if bot_app:
-            await bot_app.stop()
-            await bot_app.shutdown()
-        if web_runner:
-            await web_runner.cleanup()
         logger.info("✅ Shutdown complete")
 
 if __name__ == "__main__":
