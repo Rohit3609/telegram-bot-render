@@ -82,8 +82,7 @@ async def add_ban_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_ban_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     words = context.bot_data.get("ban_words", [])
     await update.message.reply_text(
-        "🚫 Banned Words:\n" + "\n".join(words) if words 
-        else "No banned words set"
+        "🚫 Banned Words:\n" + "\n".join(words) if words else "No banned words set"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,7 +93,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.delete()
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"⚠️ {update.effective_user.full_name}'s message contained banned word"
+                    text=f"⚠️ {update.effective_user.full_name}'s message contained a banned word."
                 )
             except Exception as e:
                 logger.error(f"Failed to delete message: {e}")
@@ -105,7 +104,6 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== MAIN APPLICATION =====
 async def main():
-    # Validate config
     if not BOT_TOKEN:
         logger.error("❌ Missing BOT_TOKEN in environment variables")
         return
@@ -114,20 +112,10 @@ async def main():
         return
 
     try:
-        # Start web server
         await start_web_server()
 
-        # Initialize bot
         app = ApplicationBuilder().token(BOT_TOKEN).build()
-        await app.initialize()
-        await app.bot.set_my_commands([
-            ("start", "Start the bot"),
-            ("setrules", "Set group rules"),
-            ("addbanword", "Add banned word"),
-            ("listbanwords", "Show banned words")
-        ])
 
-        # Add handlers
         app.add_handler(MessageHandler(filters.ALL, init_bot_data), group=-1)
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("setrules", set_rules))
@@ -136,20 +124,11 @@ async def main():
         app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, handle_message))
         app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 
-        # Start polling
         logger.info("🤖 Starting bot polling...")
-        await app.start()
-        
-        # Keep running
-        while True:
-            await asyncio.sleep(3600)
-            
+        await app.run_polling()
+
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
-    finally:
-        if 'app' in locals():
-            await app.stop()
-            await app.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
