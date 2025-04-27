@@ -153,14 +153,16 @@ async def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, handle_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 
-    logger.info("🤖 Bot starting...")
+    logger.info("🤖 Bot initializing...")
 
-    # 🚀 Correct way: run webhook
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{APP_URL}/"
-    )
+    await app.initialize()
+    await app.start()
+
+    await app.bot.set_webhook(url=f"{APP_URL}/")
+    logger.info(f"🚀 Webhook set to {APP_URL}/")
+
+    # Keep bot running forever
+    await asyncio.Event().wait()
 
 async def main():
     web_runner = None
@@ -168,11 +170,15 @@ async def main():
     try:
         web_runner = await start_web_server()
         await run_bot()
+
     except asyncio.CancelledError:
         pass
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
     finally:
+        logger.info("👋 Shutting down...")
+        if web_runner:
+            await web_runner.cleanup()
         logger.info("✅ Shutdown complete")
 
 if __name__ == "__main__":
