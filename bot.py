@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
@@ -63,8 +64,7 @@ async def list_ban_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_admin(update):
-        await update.message.reply_text("""
-Admin Commands:
+        await update.message.reply_text("""Admin Commands:
 /setrules <text> - Set group rules
 /addbanword <word> - Add a word to banned list
 /listbanwords - Show banned words
@@ -120,14 +120,22 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Webhook route
 @flask_app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
-async def webhook():
+def webhook():
     if request.method == "POST":
         data = request.get_json(force=True)
         update = Update.de_json(data, application.bot)
-        await application.process_update(update)
+
+        # Flask cannot await, so we schedule async task manually
+        asyncio.create_task(application.process_update(update))
+        
         return "ok"
 
-# Set webhook before starting
+# Home route for Render health check
+@flask_app.route("/")
+def home():
+    return "Bot is running!"
+
+# Set webhook and add handlers
 async def main():
     await init_bot_data(application)
 
@@ -145,6 +153,5 @@ async def main():
     await application.bot.set_webhook(url=webhook_url)
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
     flask_app.run(host="0.0.0.0", port=10000)
