@@ -11,8 +11,14 @@ from telegram.ext import (
 # ===== CONFIGURATION =====
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        raise ValueError("❌ BOT_TOKEN environment variable is missing!")
+
+    APP_URL = os.getenv("APP_URL", "").rstrip("/")
+    if not APP_URL:
+        raise ValueError("❌ APP_URL environment variable is missing!")
+
     ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split()))
-    APP_URL = os.getenv("APP_URL").rstrip("/")
     PORT = int(os.getenv("PORT", 10000))
     MAX_STORED_MESSAGES = 10
     DEFAULT_RULES = "Welcome! Group Rules: No spamming. No NSFW. Be respectful."
@@ -132,37 +138,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     text = update.message.text.lower()
 
-    # Initialize message tracking
     if 'user_messages' not in context.chat_data:
         context.chat_data['user_messages'] = {}
     if user.id not in context.chat_data['user_messages']:
         context.chat_data['user_messages'][user.id] = []
 
-    # Store message ID
     context.chat_data['user_messages'][user.id].append(update.message.message_id)
     if len(context.chat_data['user_messages'][user.id]) > Config.MAX_STORED_MESSAGES:
         context.chat_data['user_messages'][user.id].pop(0)
 
-    # Check for banned words
     for word in context.bot_data.get('ban_words', []):
         if word in text:
             try:
-                # Verify bot has admin privileges
                 bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
                 if bot_member.status != "administrator":
                     await update.message.reply_text("⚠ I need admin rights to moderate!")
                     return
 
-                # Delete offending message
                 await update.message.delete()
 
-                # Ban user
                 await context.bot.ban_chat_member(
                     chat_id=chat.id,
                     user_id=user.id
                 )
 
-                # Clean up user's previous messages
                 for msg_id in context.chat_data['user_messages'][user.id]:
                     try:
                         await context.bot.delete_message(
@@ -172,7 +171,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception as e:
                         logger.warning(f"Failed to delete message {msg_id}: {e}")
 
-                # Notify group
                 await context.bot.send_message(
                     chat_id=chat.id,
                     text=f"🚨 User {user.full_name} was banned for inappropriate content."
@@ -192,7 +190,7 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(context.bot_data["rules_text"])
 
 # ===== FLASK ROUTES =====
-@flask_app.route(f"/webhook/{Config.BOT_TOKEN}", methods=["POST"])
+@flask_app.route(f"/webhook/{os.getenv('BOT_TOKEN')}", methods=["POST"])
 def webhook():
     """Handle incoming Telegram updates"""
     if request.method == "POST":
@@ -210,7 +208,6 @@ async def setup_bot():
     """Configure and start the bot"""
     await init_bot_data(application)
 
-    # Register commands
     commands = [
         BotCommand("start", "Start the bot"),
         BotCommand("setrules", "Set group rules (admin)"),
@@ -220,7 +217,6 @@ async def setup_bot():
     ]
     await application.bot.set_my_commands(commands)
 
-    # Add handlers
     handlers = [
         CommandHandler("start", start),
         CommandHandler("setrules", set_rules),
@@ -234,18 +230,15 @@ async def setup_bot():
     for handler in handlers:
         application.add_handler(handler)
 
-    # Set webhook
     webhook_url = f"{Config.APP_URL}/webhook/{Config.BOT_TOKEN}"
     await application.bot.set_webhook(url=webhook_url)
     logger.info(f"Webhook set to: {webhook_url}")
 
 # ===== ENTRY POINT =====
 if __name__ == "__main__":
-    # Run bot setup
     loop = asyncio.get_event_loop()
     loop.run_until_complete(setup_bot())
 
-    # Start Flask server
     flask_app.run(
         host="0.0.0.0",
         port=Config.PORT,
