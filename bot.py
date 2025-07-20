@@ -209,7 +209,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for msg_id in user_msgs:
                     try:
                         await context.bot.delete_message(chat.id, msg_id)
-                        await asyncio.sleep(0.2)  # prevent rate limit
+                        await asyncio.sleep(0.2)
                     except Exception as e:
                         logger.warning(f"Failed to delete message {msg_id}: {e}")
 
@@ -252,6 +252,8 @@ def health_check():
 
 # ===== BOT SETUP =====
 async def setup_bot():
+    await asyncio.sleep(5)  # ⏳ Delay to ensure Render public URL is live before webhook setup
+
     commands = [
         BotCommand("start", "Start the bot"),
         BotCommand("setrules", "Set group rules"),
@@ -281,7 +283,7 @@ async def setup_bot():
         secret_token=Config.WEBHOOK_SECRET,
         drop_pending_updates=True
     )
-    logger.info(f"Webhook configured: {webhook_url}")
+    logger.info(f"✅ Webhook configured: {webhook_url}")
 
 # ===== ENTRY POINT =====
 if __name__ == "__main__":
