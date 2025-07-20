@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import asyncio
 from flask import Flask, request, jsonify
@@ -86,7 +87,7 @@ async def set_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ensure_chat_defaults(context.chat_data)
 
-    new_rules = ' '.join(context.args)
+    new_rules = update.message.text.partition(" ")[2].strip()
     if not new_rules:
         await update.message.reply_text("Usage: /setrules <new rules text>")
         return
@@ -144,15 +145,15 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_warnings = context.chat_data["user_warnings"]
 
-    if warned_user.id not in user_warnings:
-        user_warnings[warned_user.id] = 0
-    user_warnings[warned_user.id] += 1
+    user_warnings[warned_user.id] = user_warnings.get(warned_user.id, 0) + 1
     warnings = user_warnings[warned_user.id]
+
+    reason = ' '.join(context.args) if context.args else 'Rule violation'
 
     await update.message.reply_text(
         f"⚠️ Warning {warnings}/{Config.WARNING_LIMIT}\n"
         f"User: {warned_user.full_name}\n"
-        f"Reason: {context.args[0] if context.args else 'Rule violation'}"
+        f"Reason: {reason}"
     )
 
     if warnings >= Config.WARNING_LIMIT:
@@ -195,7 +196,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_msgs.pop(0)
 
     for word in context.chat_data["ban_words"]:
-        if word in text:
+        if re.search(rf'\b{re.escape(word)}\b', text):
             try:
                 bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
                 if bot_member.status != "administrator":
@@ -208,6 +209,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for msg_id in user_msgs:
                     try:
                         await context.bot.delete_message(chat.id, msg_id)
+                        await asyncio.sleep(0.2)  # prevent rate limit
                     except Exception as e:
                         logger.warning(f"Failed to delete message {msg_id}: {e}")
 
@@ -237,7 +239,7 @@ def webhook():
         return jsonify({"status": "unauthorized"}), 401
 
     update = Update.de_json(request.get_json(), application.bot)
-    asyncio.create_task(application.process_update(update))
+    asyncio.run(application.process_update(update))
     return jsonify({"status": "ok"})
 
 @flask_app.route("/health")
@@ -293,4 +295,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
     finally:
-        loop.close() 
+        loop.close()
