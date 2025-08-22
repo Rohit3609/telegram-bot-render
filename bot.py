@@ -34,6 +34,7 @@ if admin_ids_str:
 app = Flask(__name__)
 
 # --- Telegram Application ---
+# Build the application
 application = Application.builder().token(TOKEN).build()
 
 # --- Handlers ---
@@ -82,6 +83,26 @@ application.add_handler(CommandHandler("admin", admin_only))
 application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ban_inappropriate))
 
+# Initialize the application
+async def initialize_app():
+    """Initialize the Telegram application"""
+    await application.initialize()
+    await application.start()
+    logger.info("Telegram application initialized")
+    
+    # Set webhook if APP_URL is provided
+    if APP_URL:
+        webhook_url = f"{APP_URL}/webhook/{TOKEN}"
+        await application.bot.set_webhook(webhook_url)
+        logger.info(f"Webhook set to {webhook_url}")
+
+# Initialize on app startup
+@app.before_first_request
+def initialize():
+    """Initialize the Telegram application before first request"""
+    if not application.running:
+        asyncio.run(initialize_app())
+
 # --- Webhook route ---
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
@@ -98,7 +119,7 @@ def webhook():
 def index():
     return "Bot is running!"
 
-# --- Initialize webhook on startup ---
+# --- Initialize webhook manually ---
 @app.route("/init-webhook", methods=["GET"])
 def init_webhook():
     if not APP_URL:
@@ -106,7 +127,6 @@ def init_webhook():
     
     webhook_url = f"{APP_URL}/webhook/{TOKEN}"
     try:
-        # Use asyncio.run instead of create_task for synchronous context
         asyncio.run(application.bot.set_webhook(webhook_url))
         logger.info(f"Webhook set to {webhook_url}")
         return f"Webhook set to {webhook_url}"
@@ -116,13 +136,9 @@ def init_webhook():
 
 # --- Run the app ---
 if __name__ == "__main__":
-    # Initialize webhook when running locally
-    if APP_URL:
-        try:
-            webhook_url = f"{APP_URL}/webhook/{TOKEN}"
-            asyncio.run(application.bot.set_webhook(webhook_url))
-            logger.info(f"Webhook set to {webhook_url}")
-        except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
+    # Initialize application
+    asyncio.run(initialize_app())
     
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    # Get port from environment variable or default to 5000
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
