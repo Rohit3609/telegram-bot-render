@@ -30,11 +30,10 @@ if admin_ids_str:
         logger.warning("ADMIN_IDS contains invalid values. Ignoring admin IDs.")
         ADMIN_IDS = []
 
-# --- Flask App for Render ---
+# --- Flask App ---
 app = Flask(__name__)
 
 # --- Telegram Application ---
-# Build the application
 application = Application.builder().token(TOKEN).build()
 
 # --- Handlers ---
@@ -83,37 +82,35 @@ application.add_handler(CommandHandler("admin", admin_only))
 application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ban_inappropriate))
 
-# Initialize the application
-async def initialize_app():
-    """Initialize the Telegram application"""
-    await application.initialize()
-    await application.start()
-    logger.info("Telegram application initialized")
-    
-    # Set webhook if APP_URL is provided
-    if APP_URL:
-        webhook_url = f"{APP_URL}/webhook/{TOKEN}"
-        await application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook set to {webhook_url}")
+# --- Initialization ---
+def initialize_bot():
+    """Initialize Telegram bot and set webhook."""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        loop.run_until_complete(application.initialize())
+        loop.run_until_complete(application.start())
+        logger.info("Telegram application initialized")
 
-# Track initialization status
-app_initialized = False
+        if APP_URL:
+            webhook_url = f"{APP_URL}/webhook/{TOKEN}"
+            loop.run_until_complete(application.bot.set_webhook(webhook_url))
+            logger.info(f"Webhook set to {webhook_url}")
+            
+    except Exception as e:
+        logger.error(f"Failed to initialize bot: {e}")
 
-@app.before_request
-def ensure_initialized():
-    """Ensure the Telegram application is initialized before handling any request"""
-    global app_initialized
-    if not app_initialized:
-        # Initialize the application on first request
-        asyncio.run(initialize_app())
-        app_initialized = True
+# Initialize the bot
+initialize_bot()
 
 # --- Webhook route ---
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
-        asyncio.run(application.process_update(update))
+        # Use create_task instead of ensure_future for clearer intent
+        asyncio.create_task(application.process_update(update))
         return "ok"
     except Exception as e:
         logger.error(f"Error processing update: {e}")
@@ -124,26 +121,24 @@ def webhook():
 def index():
     return "Bot is running!"
 
-# --- Initialize webhook manually ---
+# --- Manual Webhook Init ---
 @app.route("/init-webhook", methods=["GET"])
 def init_webhook():
     if not APP_URL:
         return "APP_URL not set", 400
-    
+
     webhook_url = f"{APP_URL}/webhook/{TOKEN}"
     try:
-        asyncio.run(application.bot.set_webhook(webhook_url))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(application.bot.set_webhook(webhook_url))
         logger.info(f"Webhook set to {webhook_url}")
         return f"Webhook set to {webhook_url}"
     except Exception as e:
         logger.error(f"Failed to set webhook: {e}")
         return f"Failed to set webhook: {e}", 500
 
-# --- Run the app ---
+# --- Run Flask ---
 if __name__ == "__main__":
-    # Initialize application
-    asyncio.run(initialize_app())
-    
-    # Get port from environment variable or default to 5000
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
