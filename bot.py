@@ -13,8 +13,22 @@ logger = logging.getLogger(__name__)
 
 # --- Environment Variables ---
 TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is required")
+
 APP_URL = os.getenv("APP_URL")   # e.g. https://your-app.onrender.com
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
+if not APP_URL:
+    logger.warning("APP_URL environment variable not set, webhook won't work properly")
+
+# Handle ADMIN_IDS with error checking
+admin_ids_str = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = []
+if admin_ids_str:
+    try:
+        ADMIN_IDS = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip()]
+    except ValueError:
+        logger.warning("ADMIN_IDS contains invalid values. Ignoring admin IDs.")
+        ADMIN_IDS = []
 
 # --- Flask App for Render ---
 app = Flask(__name__)
@@ -71,22 +85,44 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ban_inap
 # --- Webhook route ---
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.get_event_loop().create_task(application.process_update(update))
-    return "ok"
+    try:
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        asyncio.run(application.process_update(update))
+        return "ok"
+    except Exception as e:
+        logger.error(f"Error processing update: {e}")
+        return "error", 500
 
 # --- Health Check ---
 @app.route("/", methods=["GET"])
 def index():
     return "Bot is running!"
 
-# --- Startup Hook ---
-@app.before_first_request
+# --- Initialize webhook on startup ---
+@app.route("/init-webhook", methods=["GET"])
 def init_webhook():
+    if not APP_URL:
+        return "APP_URL not set", 400
+    
     webhook_url = f"{APP_URL}/webhook/{TOKEN}"
-    asyncio.get_event_loop().create_task(application.bot.set_webhook(webhook_url))
-    logger.info(f"Webhook set to {webhook_url}")
+    try:
+        # Use asyncio.run instead of create_task for synchronous context
+        asyncio.run(application.bot.set_webhook(webhook_url))
+        logger.info(f"Webhook set to {webhook_url}")
+        return f"Webhook set to {webhook_url}"
+    except Exception as e:
+        logger.error(f"Failed to set webhook: {e}")
+        return f"Failed to set webhook: {e}", 500
 
-# --- Local Run (Render runs gunicorn bot:app) ---
+# --- Run the app ---
 if __name__ == "__main__":
+    # Initialize webhook when running locally
+    if APP_URL:
+        try:
+            webhook_url = f"{APP_URL}/webhook/{TOKEN}"
+            asyncio.run(application.bot.set_webhook(webhook_url))
+            logger.info(f"Webhook set to {webhook_url}")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {e}")
+    
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
