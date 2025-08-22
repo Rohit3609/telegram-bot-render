@@ -96,12 +96,17 @@ async def initialize_app():
         await application.bot.set_webhook(webhook_url)
         logger.info(f"Webhook set to {webhook_url}")
 
-# Initialize on app startup
-@app.before_first_request
-def initialize():
-    """Initialize the Telegram application before first request"""
-    if not application.running:
+# Track initialization status
+app_initialized = False
+
+@app.before_request
+def ensure_initialized():
+    """Ensure the Telegram application is initialized before handling any request"""
+    global app_initialized
+    if not app_initialized:
+        # Initialize the application on first request
         asyncio.run(initialize_app())
+        app_initialized = True
 
 # --- Webhook route ---
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
