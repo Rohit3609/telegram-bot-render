@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import nest_asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -32,6 +33,7 @@ if admin_ids_str:
 
 # --- Flask App ---
 app = Flask(__name__)
+nest_asyncio.apply()  # Allows asyncio to run inside Flask
 
 # --- Telegram Application ---
 application = Application.builder().token(TOKEN).build()
@@ -83,34 +85,29 @@ application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, ne
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ban_inappropriate))
 
 # --- Initialization ---
-def initialize_bot():
+async def initialize_bot():
     """Initialize Telegram bot and set webhook."""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        loop.run_until_complete(application.initialize())
-        loop.run_until_complete(application.start())
+        await application.initialize()
+        await application.start()
         logger.info("Telegram application initialized")
 
         if APP_URL:
             webhook_url = f"{APP_URL}/webhook/{TOKEN}"
-            loop.run_until_complete(application.bot.set_webhook(webhook_url))
+            await application.bot.set_webhook(webhook_url)
             logger.info(f"Webhook set to {webhook_url}")
-            
     except Exception as e:
         logger.error(f"Failed to initialize bot: {e}")
 
-# Initialize the bot
-initialize_bot()
+# Initialize the bot on startup
+asyncio.get_event_loop().run_until_complete(initialize_bot())
 
 # --- Webhook route ---
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
-        # Use create_task instead of ensure_future for clearer intent
-        asyncio.create_task(application.process_update(update))
+        asyncio.get_event_loop().create_task(application.process_update(update))
         return "ok"
     except Exception as e:
         logger.error(f"Error processing update: {e}")
@@ -129,9 +126,7 @@ def init_webhook():
 
     webhook_url = f"{APP_URL}/webhook/{TOKEN}"
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(application.bot.set_webhook(webhook_url))
+        asyncio.get_event_loop().run_until_complete(application.bot.set_webhook(webhook_url))
         logger.info(f"Webhook set to {webhook_url}")
         return f"Webhook set to {webhook_url}"
     except Exception as e:
