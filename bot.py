@@ -3,12 +3,13 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
-# Load environment variables from .env file
+# Load environment variables from .env file (for local testing)
 load_dotenv()
 
-# Get environment variables (you can set this in Render environment)
-TOKEN = os.getenv("TELEGRAM_TOKEN")  # Use your bot token here
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
+# Get environment variables
+TOKEN = os.getenv("TELEGRAM_TOKEN")  # Bot token from BotFather
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))  # Admin User ID
+PORT = int(os.getenv("PORT", 5000))  # Port for Render (default 5000)
 
 # NSFW keywords (simple example; improve as needed)
 NSFW_KEYWORDS = ["porn", "sex", "nude", "adult"]
@@ -73,7 +74,7 @@ def main() -> None:
     # Create the Application instance and pass the bot token
     application = Application.builder().token(TOKEN).build()
 
-    # Handlers
+    # Handlers for the bot
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help))
     application.add_handler(CommandHandler("ban", ban_user))
@@ -81,8 +82,14 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, auto_welcome))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_nsfw))
 
-    # Start the bot
-    application.run_polling()
+    # Set Webhook URL to Render's URL + bot token (replace with your actual Render URL)
+    webhook_url = f"https://telegram-bot-render-ugyt.onrender.com/{TOKEN}"  # Use your Render URL here
+
+    # Set webhook for the bot
+    application.bot.set_webhook(webhook_url)
+
+    # Run the bot with webhook support
+    application.run_webhook(listen="0.0.0.0", port=PORT, url_path=TOKEN)
 
 if __name__ == '__main__':
     main()
