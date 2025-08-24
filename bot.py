@@ -1,13 +1,13 @@
 import os
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Get environment variables (you can store your token and admin ID securely)
-TOKEN = os.getenv("TELEGRAM_TOKEN")  # You can set this in the Render environment
+# Get environment variables (you can set this in Render environment)
+TOKEN = os.getenv("TELEGRAM_TOKEN")  # Use your bot token here
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 
 # NSFW keywords (simple example; improve as needed)
@@ -70,21 +70,19 @@ def kick_user(update: Update, context: CallbackContext) -> None:
 
 def main() -> None:
     """Main bot function."""
-    # The Updater creates the connection to Telegram API
-    updater = Updater(TOKEN)
-    dispatcher = updater.dispatcher
+    # Create the Application instance and pass the bot token
+    application = Application.builder().token(TOKEN).build()
 
     # Handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help))
-    dispatcher.add_handler(CommandHandler("ban", ban_user))
-    dispatcher.add_handler(CommandHandler("kick", kick_user))
-    dispatcher.add_handler(MessageHandler(Filters.status_update.new_chat_members, auto_welcome))
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, check_nsfw))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help))
+    application.add_handler(CommandHandler("ban", ban_user))
+    application.add_handler(CommandHandler("kick", kick_user))
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, auto_welcome))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_nsfw))
 
     # Start the bot
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
