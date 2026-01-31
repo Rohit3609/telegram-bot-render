@@ -12,35 +12,29 @@ from telegram.ext import (
 load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-PORT = int(os.getenv("PORT", 5000))
+PORT = int(os.getenv("PORT", 10000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # set in Render env
 
 NSFW_KEYWORDS = ["porn", "sex", "nude", "adult"]
 WARN_LIMIT = 3
-user_warnings = {}
-
-WELCOME_MESSAGE = (
-    "👋 Welcome to the group!\n\n"
-    "Rules:\n"
-    "1. No spam\n"
-    "2. Be respectful\n"
-    "3. No NSFW content"
-)
 
 # ---------------- UTILS ----------------
 
 async def is_admin(update: Update) -> bool:
+    if not update.effective_chat or not update.effective_user:
+        return False
     member = await update.effective_chat.get_member(update.effective_user.id)
     return member.status in ("administrator", "creator")
 
 def get_target_user(update: Update):
-    if update.message.reply_to_message:
+    if update.message and update.message.reply_to_message:
         return update.message.reply_to_message.from_user
     return None
 
 # ---------------- COMMANDS ----------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Bot is alive.")
+    await update.message.reply_text("🤖 Bot is alive (webhook mode).")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -69,9 +63,8 @@ async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return await update.message.reply_text("Reply to a user.")
 
-    await context.bot.ban_chat_member(
-        update.effective_chat.id, user.id, until_date=0
-    )
+    await context.bot.ban_chat_member(update.effective_chat.id, user.id)
+    await context.bot.unban_chat_member(update.effective_chat.id, user.id)
     await update.message.reply_text(f"{user.first_name} kicked.")
 
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,7 +93,13 @@ async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.restrict_chat_member(
         update.effective_chat.id,
         user.id,
-        ChatPermissions(can_send_messages=True),
+        ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=True,
+            can_send_other_messages=True,
+            can_send_polls=True,
+            can_add_web_page_previews=True,
+        ),
     )
     await update.message.reply_text(f"{user.first_name} unmuted.")
 
@@ -110,29 +109,32 @@ async def auto_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         if not member.is_bot:
             await update.message.reply_text(
-                f"Welcome {member.first_name}!\n\n{WELCOME_MESSAGE}"
+                f"Welcome {member.first_name}!\n\n"
+                "Rules:\n1. No spam\n2. Be respectful\n3. No NSFW"
             )
 
 async def nsfw_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
+    if await is_admin(update):
+        return
+
     text = update.message.text.lower()
     if any(word in text for word in NSFW_KEYWORDS):
-        user_id = update.message.from_user.id
         await update.message.delete()
 
-        user_warnings[user_id] = user_warnings.get(user_id, 0) + 1
+        warnings = context.chat_data.setdefault("warnings", {})
+        uid = update.message.from_user.id
+        warnings[uid] = warnings.get(uid, 0) + 1
 
-        if user_warnings[user_id] >= WARN_LIMIT:
-            await context.bot.ban_chat_member(update.effective_chat.id, user_id)
-            await context.bot.send_message(
-                update.effective_chat.id, "User banned after warnings."
-            )
+        if warnings[uid] >= WARN_LIMIT:
+            await context.bot.ban_chat_member(update.effective_chat.id, uid)
+            await context.bot.send_message(update.effective_chat.id, "User banned after warnings.")
         else:
             await context.bot.send_message(
                 update.effective_chat.id,
-                f"Warning {user_warnings[user_id]}/{WARN_LIMIT}",
+                f"Warning {warnings[uid]}/{WARN_LIMIT}",
             )
 
 # ---------------- MAIN ----------------
@@ -154,7 +156,7 @@ def main():
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN,
-        webhook_url=f"https://telegram-bot-render-eu64.onrender.com/{7526325073:AAG2UjAwP-EyY4pyc2F8-s9QGeidJ1b8F3I}",
+        webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
     )
 
 if __name__ == "__main__":
