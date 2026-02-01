@@ -1,5 +1,4 @@
 import os
-from dotenv import load_dotenv
 from telegram import Update, ChatPermissions
 from telegram.ext import (
     Application,
@@ -9,11 +8,10 @@ from telegram.ext import (
     filters,
 )
 
-load_dotenv()
-
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-PORT = int(os.getenv("PORT", 10000))
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # set in Render env
+# ⬇️ USE RENDER ENV DIRECTLY (NO dotenv)
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+PORT = int(os.environ.get("PORT", 10000))
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 NSFW_KEYWORDS = ["porn", "sex", "nude", "adult"]
 WARN_LIMIT = 3
